@@ -7,8 +7,8 @@ DATASET="znhoughton/babylm-150m-v3"
 TOKENIZER_NAME="opt-babylm-100m-bpe"
 BLOCK_SIZE=1024
 VOCAB_SIZE=8192
-# TARGET: 10M tokens per checkpoint
-TOKENS_PER_CHECKPOINT=10000000
+# TARGET: 20M tokens per checkpoint
+TOKENS_PER_CHECKPOINT=20000000
 SAVE_TOTAL_LIMIT=1
 WARMUP_STEPS=4000
 SEED=964
@@ -111,7 +111,7 @@ train_opt () {
 
 ############################################
 # OPT-125M - 2x A100 80GB
-# tokens/step = 1024 × 100 × 4 × 2 = 819,200
+# tokens/step = 1024 × 200 × 2 × 2 = 819,200
 # save_steps = 10M / 819,200 ≈ 12 steps
 ############################################
 train_opt \
@@ -121,13 +121,13 @@ train_opt \
   12 \
   12 \
   3072 \
-  100 \
-  4 \
+  200 \
+  2 \
   3e-4
 
 ############################################
 # OPT-350M - 2x A100 80GB
-# tokens/step = 1024 × 75 × 8 × 2 = 1,228,800
+# tokens/step = 1024 × 150 × 4 × 2 = 1,228,800
 # save_steps = 10M / 1,228,800 ≈ 8 steps
 ############################################
 train_opt \
@@ -137,13 +137,13 @@ train_opt \
   16 \
   24 \
   4096 \
-  75 \
-  8 \
+  150 \
+  4 \
   1e-4
 
 ############################################
 # OPT-1.3B - 2x A100 80GB
-# tokens/step = 1024 × 50 × 8 × 2 = 819,200
+# tokens/step = 1024 × 100 × 4 × 2 = 819,200
 # save_steps = 10M / 819,200 ≈ 12 steps
 ############################################
 train_opt \
@@ -153,6 +153,6 @@ train_opt \
   32 \
   24 \
   8192 \
-  50 \
-  8 \
+  100 \
+  4 \
   1e-4

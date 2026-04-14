@@ -3,6 +3,8 @@ set -euo pipefail
 ############################################
 # USER SETTINGS
 ############################################
+export HF_HOME=/workspace/hf_cache
+
 DATASET="znhoughton/babylm-150m-v3"
 TOKENIZER_NAME="opt-babylm-100m-bpe"
 BLOCK_SIZE=1024
@@ -10,7 +12,6 @@ VOCAB_SIZE=8192
 # TARGET: 20M tokens per checkpoint
 TOKENS_PER_CHECKPOINT=20000000
 SAVE_TOTAL_LIMIT=1
-WARMUP_STEPS=4000
 SEED=964
 ############################################
 # STEP 0: Train tokenizer ONCE
@@ -35,6 +36,8 @@ else
 fi
 ############################################
 # FUNCTION: train one OPT model
+# Args: MODEL_SIZE BASE_MODEL HIDDEN HEADS
+#       LAYERS FFN BATCH GRAD_ACCUM LR WARMUP
 ############################################
 train_opt () {
     MODEL_SIZE=$1
@@ -46,21 +49,22 @@ train_opt () {
     BATCH=$7
     GRAD_ACCUM=$8
     LR=$9
-    
-    # Calculate tokens per step and save_steps
+    WARMUP_STEPS=${10}
+
+    # Calculate tokens per step and save_steps (always 2 GPUs)
     TOKENS_PER_STEP=$((BLOCK_SIZE * BATCH * GRAD_ACCUM * 2))
     SAVE_STEPS=$((TOKENS_PER_CHECKPOINT / TOKENS_PER_STEP))
-    
+
     MODEL_NAME="opt-babylm-${MODEL_SIZE}-20eps"
     MODEL_PATH="models/${MODEL_NAME}"
-    RUN_DIR="runs/${MODEL_NAME}_${SEED}-20eps"
-    
+    RUN_DIR="/tmp/runs/${MODEL_NAME}_${SEED}-20eps"
+
     echo "============================================================"
     echo "=== Training ${MODEL_NAME} ==="
     echo "=== Tokens/step: ${TOKENS_PER_STEP} ==="
     echo "=== Save every ${SAVE_STEPS} steps (${TOKENS_PER_CHECKPOINT} tokens) ==="
     echo "============================================================"
-    
+
     # Build config (cheap, safe to re-run)
     python tokenizer_and_config.py \
         --base_model ${BASE_MODEL} \
@@ -74,7 +78,7 @@ train_opt () {
         --layers ${LAYERS} \
         --intermediate_size ${FFN} \
         --max_len ${BLOCK_SIZE}
-    
+
     # Train
     CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 train_autoreg.py \
         --model_type opt \
@@ -84,9 +88,11 @@ train_opt () {
         --do_train \
         --bf16 \
         --gradient_checkpointing \
+        --gradient_checkpointing_kwargs '{"use_reentrant": false}' \
         --block_size ${BLOCK_SIZE} \
         --per_device_train_batch_size ${BATCH} \
         --gradient_accumulation_steps ${GRAD_ACCUM} \
+        --optim adamw_torch_fused \
         --learning_rate ${LR} \
         --warmup_steps ${WARMUP_STEPS} \
         --save_steps ${SAVE_STEPS} \
@@ -100,18 +106,20 @@ train_opt () {
         --push_to_hub \
         --hub_model_id znhoughton/${MODEL_NAME}-seed${SEED} \
         --hub_strategy checkpoint \
-        --ddp_find_unused_parameters False
-    
+        --torch_compile \
+        --ddp_find_unused_parameters False \
+        --overwrite_output_dir
+
     echo "=== Finished training ${MODEL_NAME} ==="
-    # IMPORTANT: free disk before next model
     echo "=== Deleting local run directory ${RUN_DIR} ==="
     rm -rf "${RUN_DIR}"
 }
 
 
 ############################################
-# OPT-125M - 2x A100 80GB (Flash Attention)
+# OPT-125M - 2x A100 80GB
 # tokens/step = 1024 × 400 × 1 × 2 = 819,200
+# total steps ≈ 3,660; warmup = 366 (10%)
 # save_steps = 20M / 819,200 ≈ 24 steps
 ############################################
 train_opt \
@@ -123,11 +131,13 @@ train_opt \
   3072 \
   400 \
   1 \
-  3e-4
+  3e-4 \
+  366
 
 ############################################
-# OPT-350M - 2x A100 80GB (Flash Attention)
+# OPT-350M - 2x A100 80GB
 # tokens/step = 1024 × 200 × 1 × 2 = 409,600
+# total steps ≈ 7,320; warmup = 732 (10%)
 # save_steps = 20M / 409,600 ≈ 48 steps
 ############################################
 train_opt \
@@ -139,11 +149,13 @@ train_opt \
   4096 \
   200 \
   1 \
-  1e-4
+  1e-4 \
+  732
 
 ############################################
-# OPT-1.3B - 2x A100 80GB (Flash Attention)
+# OPT-1.3B - 2x A100 80GB
 # tokens/step = 1024 × 100 × 1 × 2 = 204,800
+# total steps ≈ 14,648; warmup = 1465 (10%)
 # save_steps = 20M / 204,800 ≈ 97 steps
 ############################################
 train_opt \
@@ -155,4 +167,5 @@ train_opt \
   8192 \
   100 \
   1 \
-  1e-4
+  1e-4 \
+  1465

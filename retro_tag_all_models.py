@@ -25,10 +25,7 @@ BASE_DIR.mkdir(exist_ok=True)
 
 
 def force_rmtree(path):
-    subprocess.run(
-        ["cmd", "/c", "rmdir", "/s", "/q", str(path)],
-        check=True
-    )
+    shutil.rmtree(path, ignore_errors=True)
 
 def run(cmd, cwd=None):
     subprocess.run(cmd, cwd=cwd, check=True)

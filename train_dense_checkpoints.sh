@@ -111,11 +111,11 @@ train_opt_dense () {
         --save_only_model \
         --logging_steps 1 \
         --report_to tensorboard \
-        --num_train_epochs 1 \
+        --num_train_epochs 3 \
         --seed ${SEED} \
         --output_dir ${RUN_DIR} \
-        --torch_compile \
-        --overwrite_output_dir
+        --overwrite_output_dir \
+        --word_tracking_output "${WORD_TRACKING_OUTPUT}"
 
     echo "=== Training complete. Pushing checkpoints to Hub... ==="
 
@@ -129,6 +129,14 @@ train_opt_dense () {
     echo "=== Upload verified. Deleting local scratch directory ${RUN_DIR} ==="
     rm -rf "${RUN_DIR}"
 }
+
+############################################
+# Token frequency tracking output path.
+# Tracks cumulative counts for all vocab
+# tokens — no word list needed.
+############################################
+
+WORD_TRACKING_OUTPUT="${SCRATCH_DIR}/token_counts_seed${SEED}.npz"
 
 ############################################
 # OPT-125M - single GPU

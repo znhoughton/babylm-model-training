@@ -1,4 +1,4 @@
-# coding=utf-8
+﻿# coding=utf-8
 # Copyright 2020 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,6 +28,8 @@ import warnings
 from dataclasses import dataclass, field
 from itertools import chain
 from typing import Optional
+
+from word_tracking_trainer import WordTrackingTrainer
 
 import datasets
 import evaluate
@@ -286,6 +288,17 @@ class DataTrainingArguments:
         default=True,
         metadata={
             "help": "Whether to keep line breaks when using TXT files or not."
+        },
+    )
+
+    word_tracking_output: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": (
+                "Path to write token-frequency NPZ (steps, token_counts). "
+                "Tracks cumulative counts for every vocab token across all "
+                "training steps/epochs. No word list needed."
+            )
         },
     )
 
@@ -570,7 +583,6 @@ def main():
     else:
         model = AutoModelForCausalLM.from_config(
             config, trust_remote_code=model_args.trust_remote_code,
-            attn_implementation="flash_attention_2",
         )
         n_params = sum(
             {p.data_ptr(): p.numel() for p in model.parameters()}.values()
@@ -724,7 +736,7 @@ def main():
             return metric.compute(predictions=preds, references=labels)
 
     # Initialize our Trainer
-    trainer = Trainer(
+    trainer = WordTrackingTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
@@ -740,6 +752,17 @@ def main():
 
     if model_args.early_stopping:
         trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=model_args.early_stopping_patience))
+
+    # Token frequency tracking (all vocab tokens, no word list needed)
+    if data_args.word_tracking_output:
+        trainer.set_word_tracking(
+            vocab_size=model.config.vocab_size,
+            output_path=data_args.word_tracking_output,
+        )
+        logger.info(
+            f"Token frequency tracking enabled: "
+            f"vocab_size={model.config.vocab_size} → {data_args.word_tracking_output}"
+        )
 
     # Training
     if training_args.do_train:

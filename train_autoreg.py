@@ -581,9 +581,26 @@ def main():
             low_cpu_mem_usage=model_args.low_cpu_mem_usage,
         )
     else:
-        model = AutoModelForCausalLM.from_config(
-            config, trust_remote_code=model_args.trust_remote_code,
-        )
+        # The April 2026 runs (the -20eps-seed964 models on the Hub) trained with
+        # FlashAttention-2; it was dropped incidentally in 8dccb85 alongside the
+        # word-tracking changes. Restore it so a retrain differs from those runs
+        # only where we intend it to, and fall back cleanly when flash-attn is not
+        # installed. Both paths compute exact attention.
+        try:
+            model = AutoModelForCausalLM.from_config(
+                config,
+                trust_remote_code=model_args.trust_remote_code,
+                attn_implementation="flash_attention_2",
+            )
+            logger.info("Attention kernel: flash_attention_2")
+        except (ImportError, ValueError) as err:
+            logger.warning(
+                f"FlashAttention-2 unavailable ({err}); using the default kernel. "
+                "Exact attention either way, but record this in the run notes."
+            )
+            model = AutoModelForCausalLM.from_config(
+                config, trust_remote_code=model_args.trust_remote_code,
+            )
         n_params = sum(
             {p.data_ptr(): p.numel() for p in model.parameters()}.values()
         )

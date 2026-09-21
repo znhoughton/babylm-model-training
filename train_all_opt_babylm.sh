@@ -14,6 +14,11 @@ TOKENS_PER_CHECKPOINT=20000000
 SAVE_TOTAL_LIMIT=1
 SEED=964
 
+# How many GPUs to shard across. The per-device batch is derived from this so
+# the global batch never changes; see train_opt(). Default 2, matching the
+# original April runs.
+NUM_GPUS="${NUM_GPUS-2}"
+
 ############################################
 # MODEL SELECTION
 #
@@ -82,8 +87,19 @@ train_opt () {
     LR=$9
     WARMUP_STEPS=${10}
 
-    # Calculate tokens per step and save_steps (always 2 GPUs)
-    TOKENS_PER_STEP=$((BLOCK_SIZE * BATCH * GRAD_ACCUM * 2))
+    # The BATCH values below are calibrated for 2 GPUs. Scale the per-device
+    # batch inversely with the GPU count so the GLOBAL batch stays fixed: that
+    # keeps total steps, the warmup fraction, and the checkpoint cadence
+    # identical no matter how many GPUs we rent. Renting more GPUs should buy
+    # wall-clock time, never a different training schedule.
+    if [ $(( BATCH * 2 % NUM_GPUS )) -ne 0 ]; then
+        echo "ERROR: BATCH*2 (${BATCH}*2) is not divisible by NUM_GPUS (${NUM_GPUS});" >&2
+        echo "       the global batch would change. Pick a compatible GPU count." >&2
+        exit 1
+    fi
+    PER_DEVICE_BATCH=$(( BATCH * 2 / NUM_GPUS ))
+
+    TOKENS_PER_STEP=$((BLOCK_SIZE * PER_DEVICE_BATCH * GRAD_ACCUM * NUM_GPUS))
     SAVE_STEPS=$((TOKENS_PER_CHECKPOINT / TOKENS_PER_STEP))
 
     MODEL_NAME="opt-babylm-${MODEL_SIZE}-20eps${NAME_SUFFIX}"
@@ -117,7 +133,8 @@ train_opt () {
     python check_config.py "${MODEL_PATH}" --hidden ${HIDDEN} --layers ${LAYERS} --heads ${HEADS} --ffn ${FFN}
 
     # Train
-    CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 train_autoreg.py \
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((NUM_GPUS - 1))) \
+    torchrun --nproc_per_node=${NUM_GPUS} train_autoreg.py \
         --model_type opt \
         --config_name ${MODEL_PATH} \
         --tokenizer_name ${TOKENIZER_PATH} \
@@ -127,7 +144,7 @@ train_opt () {
         --gradient_checkpointing \
         --gradient_checkpointing_kwargs '{"use_reentrant": false}' \
         --block_size ${BLOCK_SIZE} \
-        --per_device_train_batch_size ${BATCH} \
+        --per_device_train_batch_size ${PER_DEVICE_BATCH} \
         --gradient_accumulation_steps ${GRAD_ACCUM} \
         --optim adamw_torch_fused \
         --learning_rate ${LR} \
@@ -174,10 +191,15 @@ train_opt \
 fi
 
 ############################################
-# OPT-350M - 2x A100 80GB
-# tokens/step = 1024 × 200 × 1 × 2 = 409,600
+# OPT-350M
+# global tokens/step = 1024 × 200 × 1 × 2 = 409,600 (fixed; NUM_GPUS only
+#   changes how that batch is split across devices)
 # total steps ≈ 7,320; warmup = 732 (10%)
 # save_steps = 20M / 409,600 ≈ 48 steps
+#
+# LR: the series follows half of OPT Table 1 (125M 6e-4→3e-4,
+# 1.3B 2e-4→1e-4). The 350M was at 1e-4, which is the 1.3B's rate rather than
+# half of OPT's 3e-4 for this size, and broke that rule. Corrected to 1.5e-4.
 ############################################
 if should_train 350m; then
 train_opt \
@@ -189,7 +211,7 @@ train_opt \
   4096 \
   200 \
   1 \
-  1e-4 \
+  1.5e-4 \
   732
 fi
 

@@ -104,7 +104,10 @@ train_opt () {
 
     MODEL_NAME="opt-babylm-${MODEL_SIZE}-20eps${NAME_SUFFIX}"
     MODEL_PATH="models/${MODEL_NAME}"
-    RUN_DIR="/tmp/runs/${MODEL_NAME}_${SEED}-20eps"
+    # Every checkpoint is kept now (see --save_total_limit below), so this has to
+    # live somewhere with room for the whole run: ~150 checkpoints x ~1.4GB.
+    # A container overlay is typically 40GB, which is nowhere near enough.
+    RUN_DIR="${RUN_ROOT-/workspace/runs}/${MODEL_NAME}_${SEED}-20eps"
 
     echo "============================================================"
     echo "=== Training ${MODEL_NAME} ==="
@@ -150,7 +153,6 @@ train_opt () {
         --learning_rate ${LR} \
         --warmup_steps ${WARMUP_STEPS} \
         --save_steps ${SAVE_STEPS} \
-        --save_total_limit ${SAVE_TOTAL_LIMIT} \
         --save_only_model \
         --logging_steps 10 \
         --report_to tensorboard \
@@ -165,8 +167,17 @@ train_opt () {
         --overwrite_output_dir
 
     echo "=== Finished training ${MODEL_NAME} ==="
-    echo "=== Deleting local run directory ${RUN_DIR} ==="
-    rm -rf "${RUN_DIR}"
+
+    # Trainer silently skips a Hub push when the previous one is still uploading,
+    # so the local checkpoints are the authoritative copy. Keep them until the
+    # Hub has been verified; DELETE_RUN_DIR=1 opts back into the old behaviour.
+    if [ "${DELETE_RUN_DIR-0}" = "1" ]; then
+        echo "=== Deleting local run directory ${RUN_DIR} ==="
+        rm -rf "${RUN_DIR}"
+    else
+        echo "=== Keeping ${RUN_DIR} ($(du -sh "${RUN_DIR}" 2>/dev/null | cut -f1)) ==="
+        echo "=== Verify the Hub before deleting it ==="
+    fi
 }
 
 

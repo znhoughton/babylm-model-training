@@ -83,7 +83,13 @@ def autoreg_config(
             num_attention_heads=attention,
             num_hidden_layers=layers,
             max_position_embeddings=max_len,
+            # facebook/opt-350m is the one OPT size that ships with a post-LN
+            # block (do_layer_norm_before=False) and a 512-dim embedding
+            # projection. Both are inherited from the base checkpoint unless we
+            # override them, which would make a 350m-based model architecturally
+            # different from every other size rather than just larger.
             word_embed_proj_dim=hidden_size,
+            do_layer_norm_before=True,
             bos_token_id=tokenizer.special_tokens["bos"]["id"],
             eos_token_id=tokenizer.special_tokens["eos"]["id"],
             pad_token_id=tokenizer.special_tokens["pad"]["id"],

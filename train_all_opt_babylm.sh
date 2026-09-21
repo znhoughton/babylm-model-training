@@ -13,6 +13,37 @@ VOCAB_SIZE=8192
 TOKENS_PER_CHECKPOINT=20000000
 SAVE_TOTAL_LIMIT=1
 SEED=964
+
+############################################
+# MODEL SELECTION
+#
+#   ./train_all_opt_babylm.sh              # all three, as before
+#   ./train_all_opt_babylm.sh 350m         # just the 350M
+#   ./train_all_opt_babylm.sh 125m 1.3b    # any subset
+#
+# NAME_SUFFIX is appended to the model and Hub names so a retrain lands in a
+# new repo instead of overwriting weights that existing analyses (and the
+# arXiv preprints) point at. Set NAME_SUFFIX="" to overwrite in place.
+############################################
+NAME_SUFFIX="${NAME_SUFFIX--prenorm}"
+
+if [ $# -eq 0 ]; then
+  TO_TRAIN=(125m 350m 1.3b)
+else
+  TO_TRAIN=("$@")
+fi
+
+should_train () {
+  local want=$1 m
+  for m in "${TO_TRAIN[@]}"; do
+    [ "${m}" = "${want}" ] && return 0
+  done
+  return 1
+}
+
+echo "=== Will train: ${TO_TRAIN[*]} ==="
+echo "=== Name suffix: '${NAME_SUFFIX}' ==="
+
 ############################################
 # STEP 0: Train tokenizer ONCE
 ############################################
@@ -55,7 +86,7 @@ train_opt () {
     TOKENS_PER_STEP=$((BLOCK_SIZE * BATCH * GRAD_ACCUM * 2))
     SAVE_STEPS=$((TOKENS_PER_CHECKPOINT / TOKENS_PER_STEP))
 
-    MODEL_NAME="opt-babylm-${MODEL_SIZE}-20eps"
+    MODEL_NAME="opt-babylm-${MODEL_SIZE}-20eps${NAME_SUFFIX}"
     MODEL_PATH="models/${MODEL_NAME}"
     RUN_DIR="/tmp/runs/${MODEL_NAME}_${SEED}-20eps"
 
@@ -78,6 +109,12 @@ train_opt () {
         --layers ${LAYERS} \
         --intermediate_size ${FFN} \
         --max_len ${BLOCK_SIZE}
+
+    # Architecture guard. AutoConfig.from_pretrained inherits anything we do
+    # not override from the base checkpoint, and facebook/opt-350m is the one
+    # OPT size that ships post-LN with a 512-dim embedding projection. Catching
+    # that here costs a second; catching it after the run costs the run.
+    python check_config.py "${MODEL_PATH}" --hidden ${HIDDEN} --layers ${LAYERS} --heads ${HEADS} --ffn ${FFN}
 
     # Train
     CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 train_autoreg.py \
@@ -122,6 +159,7 @@ train_opt () {
 # total steps ≈ 3,660; warmup = 366 (10%)
 # save_steps = 20M / 819,200 ≈ 24 steps
 ############################################
+if should_train 125m; then
 train_opt \
   125m \
   facebook/opt-125m \
@@ -133,6 +171,7 @@ train_opt \
   1 \
   3e-4 \
   366
+fi
 
 ############################################
 # OPT-350M - 2x A100 80GB
@@ -140,6 +179,7 @@ train_opt \
 # total steps ≈ 7,320; warmup = 732 (10%)
 # save_steps = 20M / 409,600 ≈ 48 steps
 ############################################
+if should_train 350m; then
 train_opt \
   350m \
   facebook/opt-350m \
@@ -151,6 +191,7 @@ train_opt \
   1 \
   1e-4 \
   732
+fi
 
 ############################################
 # OPT-1.3B - 2x A100 80GB
@@ -158,6 +199,7 @@ train_opt \
 # total steps ≈ 14,648; warmup = 1465 (10%)
 # save_steps = 20M / 204,800 ≈ 97 steps
 ############################################
+if should_train 1.3b; then
 train_opt \
   1.3b \
   facebook/opt-1.3b \
@@ -169,3 +211,4 @@ train_opt \
   1 \
   1e-4 \
   1465
+fi

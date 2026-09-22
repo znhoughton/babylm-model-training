@@ -23,13 +23,15 @@ STATUS 2026-09-22: steps 1 and 2 are DONE. The old post-LN model is at
 ...-seed964-old and is private. Only step 3 (promotion) remains, and it must
 wait until training stops pushing to the -prenorm repo.
 
-KNOWN RISK for step 3: renaming leaves a redirect behind, so the canonical name
-currently forwards to ...-seed964-old rather than being free. If move_repo is
-refused because the name looks taken, the fallback is to rename the retired
-repo again to a name unrelated to the canonical one (e.g.
-opt-babylm-350m-20eps-POSTLN-BUGGED), which breaks the redirect chain, then
-retry the promotion. Verify afterwards that the canonical name serves
-do_layer_norm_before=True -- do not assume it.
+REDIRECT: renaming leaves a redirect behind, so the canonical name currently
+forwards to ...-seed964-old. Tested 2026-09-22 with throwaway repos: moving a
+second repo INTO a redirected name SUCCEEDS and supersedes the redirect, so no
+workaround is expected. If it is ever refused, rename the retired repo to
+something unrelated (e.g. opt-babylm-350m-20eps-POSTLN-BUGGED) to break the
+chain and retry.
+
+Either way the promotion is VERIFIED, not assumed: step 3 fetches config.json
+from the canonical name and exits nonzero unless do_layer_norm_before is True.
 """
 
 import argparse

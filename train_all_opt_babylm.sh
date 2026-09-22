@@ -19,6 +19,22 @@ SEED=964
 # original April runs.
 NUM_GPUS="${NUM_GPUS-2}"
 
+# Gradient checkpointing recomputes activations during the backward pass to save
+# VRAM, costing roughly 30-40% extra compute. The April runs used it, but the
+# 350M at batch 100 x 1024 peaked near 30GB of an 80GB card, so it was paying
+# that cost for headroom it did not need. Off by default; GRAD_CKPT=1 restores
+# it if a bigger model or batch genuinely needs the memory. Gradients are
+# mathematically identical either way, so this does not change the model.
+GRAD_CKPT="${GRAD_CKPT-0}"
+if [ "$GRAD_CKPT" = "1" ]; then
+    GRAD_CKPT_FLAGS='--gradient_checkpointing --gradient_checkpointing_kwargs {"use_reentrant":false}'
+else
+    GRAD_CKPT_FLAGS=""
+fi
+
+# Dataloading ran unparallelised (HF default is 0 = main process only).
+DATALOADER_WORKERS="${DATALOADER_WORKERS:-8}"
+
 ############################################
 # MODEL SELECTION
 #
@@ -144,8 +160,8 @@ train_opt () {
         --dataset_name ${DATASET} \
         --do_train \
         --bf16 \
-        --gradient_checkpointing \
-        --gradient_checkpointing_kwargs '{"use_reentrant": false}' \
+        ${GRAD_CKPT_FLAGS} \
+        --dataloader_num_workers ${DATALOADER_WORKERS} \
         --block_size ${BLOCK_SIZE} \
         --per_device_train_batch_size ${PER_DEVICE_BATCH} \
         --gradient_accumulation_steps ${GRAD_ACCUM} \

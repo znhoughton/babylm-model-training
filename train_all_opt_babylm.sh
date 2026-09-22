@@ -224,6 +224,12 @@ fi
 # total steps ≈ 7,320; warmup = 732 (10%)
 # save_steps = 20M / 409,600 ≈ 48 steps
 #
+# BATCH/GRAD_ACCUM: 100 x 2 rather than 200 x 1. Without gradient checkpointing
+# the retained activations at per-device batch 100 overflow an 80GB card, so the
+# same global batch is reached by halving the per-device batch and accumulating
+# twice: 1024 x 50 x 2 x 4 GPUs = 409,600 tokens/step, identical to before.
+# Accumulation costs far less than checkpointing's ~30-40% recompute.
+#
 # LR: the series follows half of OPT Table 1 (125M 6e-4→3e-4,
 # 1.3B 2e-4→1e-4). The 350M was at 1e-4, which is the 1.3B's rate rather than
 # half of OPT's 3e-4 for this size, and broke that rule. Corrected to 1.5e-4.
@@ -236,8 +242,8 @@ train_opt \
   16 \
   24 \
   4096 \
-  200 \
-  1 \
+  100 \
+  2 \
   1.5e-4 \
   732
 fi

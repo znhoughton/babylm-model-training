@@ -75,8 +75,11 @@ class WordTrackingTrainer(Trainer):
             f"[WordTracking] Tracking all {vocab_size} tokens → {self._wt_output}"
         )
 
-    def training_step(self, model, inputs):
-        result = super().training_step(model, inputs)
+    def training_step(self, model, inputs, *args, **kwargs):
+        # transformers 4.46 added num_items_in_batch as a third positional
+        # argument. Accept and forward whatever the installed Trainer passes so
+        # this subclass does not pin the library version.
+        result = super().training_step(model, inputs, *args, **kwargs)
 
         if not getattr(self, "_wt_enabled", False):
             return result

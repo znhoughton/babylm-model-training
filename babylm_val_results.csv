@@ -1,4 +1,4 @@
 model,val_loss,perplexity
 OPT-125M,2.8223,16.81
-OPT-350M,2.9371,18.86
+OPT-350M,2.6637,14.35
 OPT-1.3B,2.7202,15.18
